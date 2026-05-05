@@ -1,3 +1,4 @@
+import re
 
 
 async def get_model_name(client):
@@ -5,22 +6,34 @@ async def get_model_name(client):
     model_name = models.data[0].id
     return model_name
 
-
-async def llm_msg(client, prompt, model_name):
-    resp = await client.chat.completions.create(
-        model=model_name,
-        messages=[
+def llm_msg(prompt):
+    messages = [
             {"role": "system", "content": "You are a helpful assistant."},
             {"role": "user", "content": prompt}
-        ],
-        temperature=0
-    )
-    res = resp.choices[0].message.content
-    return res
+        ]
+    return messages
 
 
-def truncate_prompt(tokenizer, prompt, max_tokens):
-    tokens = tokenizer.encode(prompt)
-    if len(tokens) > max_tokens:
-        tokens = tokens[:max_tokens] 
-    return tokenizer.decode(tokens)
+def clean_text(text):
+    if text is None:
+        return ""
+    text = str(text)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r" *\n *", "\n", text)
+    return text.strip()
+
+
+def truncate_prompts(tokenizer, prompts, max_tokens):
+    encoded = tokenizer(
+        prompts,
+        add_special_tokens=False,
+        truncation=True,
+        max_length=max_tokens,
+    )["input_ids"]
+    return tokenizer.batch_decode(encoded)
+
+
+def clean_and_truncate_texts(tokenizer, texts, max_tokens):
+    cleaned_texts = [clean_text(text) for text in texts]
+    return truncate_prompts(tokenizer, cleaned_texts, max_tokens)
