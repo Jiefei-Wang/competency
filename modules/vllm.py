@@ -1,5 +1,6 @@
 import re
-
+from modules.validator import validate_task
+from llm_output_parser import parse_json
 
 async def get_model_name(client):
     models = await client.models.list()
@@ -37,3 +38,15 @@ def truncate_prompts(tokenizer, prompts, max_tokens):
 def clean_and_truncate_texts(tokenizer, texts, max_tokens):
     cleaned_texts = [clean_text(text) for text in texts]
     return truncate_prompts(tokenizer, cleaned_texts, max_tokens)
+
+
+
+def runner_json(task, data_template):
+    ok, reasons, parsed_data = validate_task(task, data_template)
+    if not ok and len(task.messages)<=6: # only retry twice (initial + 1 retry)
+        validation_msg = "\n".join(reasons)
+        print(f"task.index: {task.index}. Validation: {validation_msg}")
+        task.messages.append({"role": "user", "content": validation_msg})
+        return task
+
+    return parsed_data

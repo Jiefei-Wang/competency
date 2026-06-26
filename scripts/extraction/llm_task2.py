@@ -17,9 +17,9 @@ import os
 import time
 
 from modules.data_template_task2 import SocioeconomicFamilyExtraction
-from modules.extractor_task2 import results_to_dataframe
-from modules.vllm import get_model_name, llm_msg, clean_and_truncate_texts
-from modules.validator_task2 import validate_socioeconomic_family_task
+from modules.extractor import results_to_dataframe
+from modules.vllm import get_model_name, llm_msg, clean_and_truncate_texts, runner_json
+
 
 client = AsyncOpenAI(
     api_key="EMPTY",
@@ -35,29 +35,6 @@ MAX_TOKENS = 50000
 model_name = asyncio.run(get_model_name(client))
 tokenizer = AutoTokenizer.from_pretrained(model_name)
 
-def runner_json(task):
-    ok, reasons, parsed_data = validate_socioeconomic_family_task(task)
-    if not ok and len(task.messages)<=6: # only retry twice (initial + 1 retry)
-        validation_msg = "\n".join(reasons)
-        print(f"task.index: {task.index}. Validation: {validation_msg}")
-        task.messages.append({"role": "user", "content": validation_msg})
-        return task
-
-    return parsed_data
-
-def extract_parsed_data(result):
-    if isinstance(result, dict):
-        return result
-    output = getattr(result, "output", None)
-    if isinstance(output, dict):
-        return output
-    if isinstance(output, str):
-        try:
-            parsed = parse_json(output, strict=False)
-            return parsed if isinstance(parsed, dict) else {}
-        except Exception:
-            return {}
-    return {}
 
 with open("prompts/task2_extract_evaluation.md", "r", encoding="utf-8") as f: # encoding = "utf-8"?
     prompt_template = f.read()
@@ -69,7 +46,7 @@ prompt_template = prompt_template.replace("{schema}", json.dumps(schema, indent=
 with open("output/task2_extract_evaluation.md", "w") as f:
     f.write(prompt_template) 
 
-note = pd.read_feather("output/extraction_blocks.feather")
+note = pd.read_feather("output/task1/extraction_blocks.feather")
 all_note = note.evaluation_text.tolist()
 
 texts = all_note[:100]
@@ -87,28 +64,27 @@ tasks = [
          ) 
     for i, messages in enumerate(message_list)]
 
+def runner_json_task2(task):
+    return runner_json(task, SocioeconomicFamilyExtraction)
 
 start_time = time.time()
 results = runner.run(
     tasks,
-    pipeline = [runner_json],
+    pipeline = [runner_json_task2],
     model=model_name,
     temperature=0
 )
 end_time = time.time()
 
 print(f"Extraction time: {end_time - start_time} seconds")
-    
-df = results_to_dataframe(results)
-df.to_json("output/task2_extractions.jsonl", orient="records", lines=True)
-df.to_feather("output/task2_extractions.feather")
-df.to_csv("output/task2_extractions_review.csv", index=False)
+
+output_dir = "output/task2"
+if not os.path.exists(output_dir):
+    os.makedirs(output_dir)
+
+df = results_to_dataframe(results, SocioeconomicFamilyExtraction)
+df.to_json(f"{output_dir}/extractions.jsonl", orient="records", lines=True)
+df.to_feather(f"{output_dir}/extractions.feather")
+df.to_csv(f"{output_dir}/extractions_review.csv", index=False)
 print(df.head())
 
-
-df = pd.read_feather("output/task2_extractions.feather")
-# Run Dashboard
-from dashboard_repo.cst_reviewer import launch_dashboard
-
-# Launch the UI programmatically 
-launch_dashboard(notes_df=note, extracts_df=df)

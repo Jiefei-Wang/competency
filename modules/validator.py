@@ -1,88 +1,56 @@
+from collections.abc import Iterator
 from typing import Any
 
 from llm_output_parser import parse_json
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from modules.data_template import CompetencyReportData
 
 
-BASE_DATA_FIELDS = (
-    "header",
-    "author",
-    "cause_number",
-    "evaluee_name",
-    "reason_for_evaluation",
-    "current_charges",
-    "birth_place",
-    "family",
-    "childhood_development",
-    "education",
-    "employment",
-    "legal_history",
-    "military_history",
-    "psychiatric_history",
-    "substance_use",
-    "medical_history",
-    "mental_status_examination",
-    "areas_of_competency",
-    "opinion",
-    "recommendations",
-)
-
-DATE_DATA_FIELDS = (
-    "date_of_examination",
-    "date_of_report",
-    "evaluee_dob",
-)
-
-LIST_VALUE_FIELDS = (
-    "current_charges",
-    "employment",
-    "legal_history",
-    "psychiatric_history",
-    "substance_use",
-    "medical_history",
-)
-
-ALL_EXTRACTION_FIELDS = BASE_DATA_FIELDS + DATE_DATA_FIELDS
-
-
-def validate_competency_report_task(task: Any) -> tuple[bool, list[str], dict[str, Any]]:
+def validate_task(
+    task: Any,
+    data_template: type[BaseModel],
+) -> tuple[bool, list[str], dict[str, Any]]:
     if task is None:
         return False, ["Validation failed: task is missing."], {}
 
-    ok, reasons, parsed_data = validate_competency_report_text(
-        getattr(task, "output", None)
-    )
-    if not ok:
+    output = getattr(task, "output", None)
+    if isinstance(output, str):
+        ok, reasons, parsed_data = validate_text(output, data_template)
+    else:
+        ok, reasons, parsed_data = validate_payload(output, data_template)
+    if not ok and not parsed_data:
         return False, reasons, parsed_data
+
+    supporting_paths = list(_find_supporting_text_fields(parsed_data))
+    if not supporting_paths:
+        return ok, reasons, parsed_data
 
     note_text = getattr(task, "original", None)
     if not isinstance(note_text, str):
+        reasons.append(
+            "Validation failed: task.original is missing or not a string, so supporting text spans cannot be checked."
+        )
         return (
             False,
-            [
-                "Validation failed: task.original is missing or not a string, so supporting text spans cannot be checked."
-            ],
+            reasons,
             parsed_data,
         )
 
     span_issues = validate_text_spans(parsed_data, note_text)
-    if span_issues:
-        return False, span_issues, parsed_data
+    reasons.extend(span_issues)
+    if reasons:
+        return False, reasons, parsed_data
 
     return True, [], parsed_data
 
 
-def validate_competency_report_text(text: Any) -> tuple[bool, list[str], dict[str, Any]]:
+def validate_text(
+    text: Any,
+    data_template: type[BaseModel],
+) -> tuple[bool, list[str], dict[str, Any]]:
     if not isinstance(text, str):
-        return (
-            False,
-            [
-                "Validation failed: the model output must be plain text before it can be parsed as JSON."
-            ],
-            {},
-        )
+        return False, ["Validation failed: model output must be a string."], {}
 
     try:
         payload = parse_json(text, strict=False)
@@ -90,35 +58,33 @@ def validate_competency_report_text(text: Any) -> tuple[bool, list[str], dict[st
         return (
             False,
             [
-                "Validation failed: the model output could not be parsed as JSON.",
+                "Validation failed: model output could not be parsed as JSON.",
                 f"Parser error: {exc}",
             ],
             {},
         )
 
-    return validate_competency_report_payload(payload)
+    return validate_payload(payload, data_template)
 
 
-def validate_competency_report_payload(
+def validate_payload(
     payload: Any,
+    data_template: type[BaseModel],
 ) -> tuple[bool, list[str], dict[str, Any]]:
     parsed_data = payload if isinstance(payload, dict) else {}
 
     try:
-        parsed = CompetencyReportData.model_validate(payload, strict=True)
+        parsed = data_template.model_validate(payload, strict=False)
+    except AttributeError:
+        return (
+            False,
+            ["Validation failed: data_template must be a Pydantic model class."],
+            parsed_data,
+        )
     except ValidationError as exc:
-        return False, _format_pydantic_errors(exc), parsed_data
+        return False, _format_pydantic_errors(exc, data_template), parsed_data
 
     parsed_data = parsed.model_dump()
-
-    no_result_issues = validate_no_result_fields(parsed_data)
-    if no_result_issues:
-        return False, no_result_issues, parsed_data
-
-    date_issues = validate_date_precision(parsed_data)
-    if date_issues:
-        return False, date_issues, parsed_data
-
     value_issues = validate_field_values(parsed_data)
     if value_issues:
         return False, value_issues, parsed_data
@@ -126,197 +92,88 @@ def validate_competency_report_payload(
     return True, [], parsed_data
 
 
-def validate_no_result_fields(payload: dict[str, Any]) -> list[str]:
-    issues: list[str] = []
-
-    if payload.get("contain_competence_result") != "no":
-        return issues
-
-    for field in ALL_EXTRACTION_FIELDS:
-        if payload.get(field) is not None:
-            issues.append(
-                f"Field `{field}` must be null when `contain_competence_result` is `no`."
-            )
-
-    return issues
-
-
-def validate_date_precision(payload: dict[str, Any]) -> list[str]:
-    issues: list[str] = []
-
-    for field in DATE_DATA_FIELDS:
-        item = payload.get(field)
-        if item is None:
-            continue
-
-        precision = item.get("date_precision")
-        year = item.get("date_year")
-        month = item.get("date_month")
-        day = item.get("date_day")
-
-        if year is not None and not 1000 <= year <= 9999:
-            issues.append(
-                f"Field `{field}.date_year` must be a 4-digit year when available."
-            )
-        if month is not None and not 1 <= month <= 12:
-            issues.append(f"Field `{field}.date_month` must be between 1 and 12.")
-        if day is not None and not 1 <= day <= 31:
-            issues.append(f"Field `{field}.date_day` must be between 1 and 31.")
-
-        if year is None and (month is not None or day is not None):
-            issues.append(
-                f"Field `{field}.date_year` must be set when date_month or date_day is set."
-            )
-        if month is None and day is not None:
-            issues.append(
-                f"Field `{field}.date_month` must be set when date_day is set."
-            )
-
-        if precision is None:
-            if year is not None or month is not None or day is not None:
-                issues.append(
-                    f"Field `{field}.date_precision` must be set when any date part is set."
-                )
-        elif precision == "year":
-            if year is None:
-                issues.append(
-                    f"Field `{field}.date_year` must be set when date_precision is `year`."
-                )
-            if month is not None:
-                issues.append(
-                    f"Field `{field}.date_month` must be null when date_precision is `year`."
-                )
-            if day is not None:
-                issues.append(
-                    f"Field `{field}.date_day` must be null when date_precision is `year`."
-                )
-        elif precision == "month":
-            if year is None:
-                issues.append(
-                    f"Field `{field}.date_year` must be set when date_precision is `month`."
-                )
-            if month is None:
-                issues.append(
-                    f"Field `{field}.date_month` must be set when date_precision is `month`."
-                )
-            if day is not None:
-                issues.append(
-                    f"Field `{field}.date_day` must be null when date_precision is `month`."
-                )
-        elif precision == "day":
-            if year is None:
-                issues.append(
-                    f"Field `{field}.date_year` must be set when date_precision is `day`."
-                )
-            if month is None:
-                issues.append(
-                    f"Field `{field}.date_month` must be set when date_precision is `day`."
-                )
-            if day is None:
-                issues.append(
-                    f"Field `{field}.date_day` must be set when date_precision is `day`."
-                )
-
-    return issues
-
-
 def validate_field_values(payload: dict[str, Any]) -> list[str]:
     issues: list[str] = []
 
-    for field in BASE_DATA_FIELDS:
-        item = payload.get(field)
-        if item is None:
-            continue
-
-        value = item.get("value")
-        if value is None:
-            issues.append(
-                f"Field `{field}` should be null instead of an object when no value is available."
-            )
-
-        if field in LIST_VALUE_FIELDS and value is not None and not isinstance(value, list):
-            issues.append(f"Field `{field}.value` must be a list of strings.")
-
-        if isinstance(value, list):
-            for idx, entry in enumerate(value):
-                if not isinstance(entry, str) or not entry.strip():
-                    issues.append(
-                        f"Field `{field}.value[{idx}]` must be a non-empty string."
-                    )
-        elif isinstance(value, str) and not value.strip():
-            issues.append(f"Field `{field}.value` must not be an empty string.")
-
-    for field in DATE_DATA_FIELDS:
-        item = payload.get(field)
-        if item is None:
-            continue
-
-        date_text = item.get("date_text")
-        precision = item.get("date_precision")
-        year = item.get("date_year")
-        month = item.get("date_month")
-        day = item.get("date_day")
-        if (
-            date_text is None
-            and precision is None
-            and year is None
-            and month is None
-            and day is None
-        ):
-            issues.append(
-                f"Field `{field}` should be null instead of an object when no date is available."
-            )
-
-        if isinstance(date_text, str) and not date_text.strip():
-            issues.append(f"Field `{field}.date_text` must not be an empty string.")
+    for path, value in _walk_values(payload):
+        if isinstance(value, str) and not value.strip():
+            issues.append(f"Field `{path}` must not be empty.")
+        elif isinstance(value, list):
+            for idx, item in enumerate(value):
+                if isinstance(item, str) and not item.strip():
+                    issues.append(f"Field `{path}[{idx}]` must not be empty.")
 
     return issues
 
 
 def validate_text_spans(payload: dict[str, Any], note_text: str) -> list[str]:
     issues: list[str] = []
+    normalized_note = normalize_text(note_text)
 
-    for field in BASE_DATA_FIELDS:
-        item = payload.get(field)
-        if item is None:
+    for path, supporting_text in _find_supporting_text_fields(payload):
+        if not isinstance(supporting_text, str) or not supporting_text.strip():
             continue
 
-        supporting_text = item.get("supporting_text")
-        if isinstance(supporting_text, str) and supporting_text:
-            if supporting_text not in note_text:
-                issues.append(
-                    f"Field `{field}.supporting_text` was not found in the input note text. Copy an exact supporting span from the note."
-                )
-
-    for field in DATE_DATA_FIELDS:
-        item = payload.get(field)
-        if item is None:
-            continue
-
-        supporting_text = item.get("supporting_text")
-        date_text = item.get("date_text")
-
-        if isinstance(supporting_text, str) and supporting_text:
-            if supporting_text not in note_text:
-                issues.append(
-                    f"Field `{field}.supporting_text` was not found in the input note text. Copy an exact supporting span from the note."
-                )
-
-        if isinstance(date_text, str) and date_text:
-            if date_text not in note_text:
-                issues.append(
-                    f"Field `{field}.date_text` was not found in the input note text. Copy the date exactly as it appears in the note, or use null when no date is stated."
-                )
+        if normalize_text(supporting_text) not in normalized_note:
+            issues.append(f"Field `{path}` was not found in source note.")
 
     return issues
 
 
-def _format_pydantic_errors(exc: ValidationError) -> list[str]:
-    reasons = ["Validation failed: the JSON does not match CompetencyReportData."]
+def normalize_text(text: str) -> str:
+    return "".join(text.split())
+
+
+def _walk_values(data: Any, path: str = "") -> Iterator[tuple[str, Any]]:
+    if isinstance(data, dict):
+        for key, value in data.items():
+            child_path = f"{path}.{key}" if path else str(key)
+            if key == "value":
+                yield child_path, value
+            yield from _walk_values(value, child_path)
+    elif isinstance(data, list):
+        for idx, item in enumerate(data):
+            child_path = f"{path}[{idx}]" if path else f"[{idx}]"
+            yield from _walk_values(item, child_path)
+
+
+def _find_supporting_text_fields(data: Any, path: str = "") -> Iterator[tuple[str, Any]]:
+    if isinstance(data, dict):
+        for key, value in data.items():
+            child_path = f"{path}.{key}" if path else str(key)
+            if key == "supporting_text" or key.endswith("_supporting_text"):
+                yield child_path, value
+            yield from _find_supporting_text_fields(value, child_path)
+    elif isinstance(data, list):
+        for idx, item in enumerate(data):
+            child_path = f"{path}[{idx}]" if path else f"[{idx}]"
+            yield from _find_supporting_text_fields(item, child_path)
+
+
+def _format_pydantic_errors(
+    exc: ValidationError,
+    data_template: type[BaseModel],
+) -> list[str]:
+    template_name = getattr(data_template, "__name__", "data template")
+    reasons = [f"Validation failed: JSON does not match {template_name}."]
     for error in exc.errors():
         location = ".".join(str(part) for part in error["loc"]) or "payload"
         reasons.append(f"Field `{location}`: {error['msg']}")
     return reasons
+
+
+def validate_competency_report_task(task: Any) -> tuple[bool, list[str], dict[str, Any]]:
+    return validate_task(task, CompetencyReportData)
+
+
+def validate_competency_report_text(text: Any) -> tuple[bool, list[str], dict[str, Any]]:
+    return validate_text(text, CompetencyReportData)
+
+
+def validate_competency_report_payload(
+    payload: Any,
+) -> tuple[bool, list[str], dict[str, Any]]:
+    return validate_payload(payload, CompetencyReportData)
 
 
 # Backward-compatible aliases for callers that still use the old validator names.
