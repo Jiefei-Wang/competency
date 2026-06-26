@@ -2,7 +2,7 @@ from typing import Any, Iterator, Tuple
 
 from pydantic import ValidationError
 
-from scripts.llm_output_parser import parse_json
+from llm_output_parser import parse_json
 from modules.data_template_task1 import CompetencyReportExtraction
 
 

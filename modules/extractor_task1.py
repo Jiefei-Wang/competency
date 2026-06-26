@@ -3,7 +3,7 @@ from collections.abc import Iterable
 from typing import Any
 
 import pandas as pd
-from scripts.llm_output_parser import parse_json
+from llm_output_parser import parse_json
 
 def results_to_dataframe(
     results: Iterable[Any],
