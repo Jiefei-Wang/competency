@@ -4,6 +4,8 @@
 #python -m pip install git+https://github.com/Jiefei-Wang/extract_inspector.git
 #python -m pip install llm_output_parser
 
+#from scripts.extraction.llm_task1 import runner_json_task1
+
 import asyncio
 from openai import AsyncOpenAI
 from llmrunner import Runner, Task
@@ -31,7 +33,7 @@ runner = Runner(
 MAX_TOKENS = 50000
 # model_name = 'google/gemma-4-E2B-it'
 model_name = asyncio.run(get_model_name(client))
-tokenizer = AutoTokenizer.from_pretrained(model_name)
+tokenizer = AutoTokenizer.from_pretrained("RedHatAI/gemma-4-26B-A4B-it-FP8-dynamic")
 
 with open("prompts/task1_extract_evaluation.md", "r") as f:
     prompt_template = f.read()
@@ -82,11 +84,21 @@ output_dir = "output/task1"
 if not os.path.exists(output_dir):
     os.makedirs(output_dir)
 
+
+# df = pd.read_feather(f"{output_dir}/extraction.feather")
 df = results_to_dataframe(results, CompetencyReportExtraction)
+df = df.merge(note[['id', 'name']], left_on='note_id', right_on='id', how='left', suffixes=('', '_note')
+              ).drop(columns=['id'])
+
+df["date_of_report_value"] = pd.to_datetime(df["date_of_report_value"], errors="coerce")
+df["date_of_examination_value"] = pd.to_datetime(df["date_of_examination_value"], errors="coerce")
+
 df.to_feather(f"{output_dir}/extraction.feather")
 df.to_json(f"{output_dir}/extraction.jsonl", orient="records", lines=True)
 df.to_csv(f"{output_dir}/extraction_review.csv", index=False)
 print(df.head())
+
+print(df.columns)
 
 
 
@@ -94,15 +106,16 @@ print("\nExtracting evaluation blocks to markdown files...")
 
 extracted_records = []
 note_text_by_id = dict(zip(note.id.tolist(), modified_notes))
-
 for _, row in df.iterrows():
     note_id = row["note_id"]
+    file_name = row["name"]
     print(f"\n--- Document Note ID: {note_id} ---")
     
     is_competency = row.get("is_competence_to_stand_trial")
     if is_competency:
-        start_block = row.get("block_section_start")
-        end_block = row.get("block_section_end")
+        # FIX: Added _value to match your dataframe columns
+        start_block = row.get("block_section_start_value")
+        end_block = row.get("block_section_end_value")
         
         print(f"LLM extracted blocks: Start = {start_block}, End = {end_block}")
         note_text = note_text_by_id.get(note_id)
@@ -117,12 +130,12 @@ for _, row in df.iterrows():
 
         extracted_records.append({
             "note_id": note_id,
+            "file_name": file_name,
             "block_section_start": start_block,
             "block_section_end": end_block,
             "evaluation_text": extracted_text
         })
-        print(f"Sliced blocks {start_block} to {end_block}.")
-        
+        print(f"Sliced blocks {start_block} to {end_block}.")   
 
 
 df_blocks = pd.DataFrame(extracted_records)

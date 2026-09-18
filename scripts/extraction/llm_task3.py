@@ -4,7 +4,7 @@
 #python -m pip install git+https://github.com/Jiefei-Wang/extract_inspector.git
 #python -m pip install llm_output_parser
 
-#from scripts.extraction.llm_task2 import runner_json_task2
+#from scripts.extraction.llm_task3 import runner_json_task3
 
 from pathlib import Path
 import asyncio
@@ -18,7 +18,7 @@ import json
 import os
 import time
 
-from modules.data_template_task2 import SocioeconomicFamilyExtraction
+from modules.data_template_task3 import HistoryLegalCompetence
 from modules.extractor import results_to_dataframe
 from modules.vllm import get_model_name, llm_msg, clean_and_truncate_texts, runner_json
 
@@ -35,24 +35,20 @@ runner = Runner(
 MAX_TOKENS = 50000
 # model_name = 'google/gemma-4-E2B-it'
 model_name = asyncio.run(get_model_name(client))
-tokenizer = AutoTokenizer.from_pretrained("RedHatAI/gemma-4-26B-A4B-it-FP8-dynamic")
+tokenizer = AutoTokenizer.from_pretrained("RedHatAI/gemma-4-26B-A4B-it-FP8-Dynamic")
 
-
-with open("prompts/task2_extract_evaluation.md", "r", encoding="utf-8") as f: # encoding = "utf-8"?
+with open("prompts/task3_extract_evaluation.md", "r", encoding="utf-8") as f: # encoding = "utf-8"?
     prompt_template = f.read()
 
-schema = SocioeconomicFamilyExtraction.model_json_schema()
+schema = HistoryLegalCompetence.model_json_schema()
 prompt_template = prompt_template.replace("{schema}", json.dumps(schema, indent=2))
 
 # need to duplicate on here 
-with open("output/task2_extract_evaluation.md", "w", encoding="utf-8") as f: # encoding = "utf-8"?
+with open("output/task3_extract_evaluation.md", "w", encoding="utf-8") as f:
     f.write(prompt_template)
-
+    
 note = pd.read_feather("output/task1/extraction_blocks.feather")
 all_note = note.evaluation_text.tolist()
-
-#print the extraction blocks for the first 10 notes in task 1
-print(note[:10])
 
 texts = all_note[:50]
 truncated_text = clean_and_truncate_texts(tokenizer, texts, MAX_TOKENS)
@@ -69,26 +65,25 @@ tasks = [
          ) 
     for i, messages in enumerate(message_list)]
 
-def runner_json_task2(task):
-    return runner_json(task, SocioeconomicFamilyExtraction)
+def runner_json_task3(task):
+    return runner_json(task, HistoryLegalCompetence)
 
 start_time = time.time()
 results = runner.run(
     tasks,
-    pipeline = [runner_json_task2],
-    model=model_name,
+    pipeline = [runner_json_task3],
+    model=model_name, 
     temperature=0
 )
 end_time = time.time()
 
 print(f"Extraction time: {end_time - start_time} seconds")
 
-output_dir = "output/task2"
+output_dir = "output/task3"
 if not os.path.exists(output_dir):
     os.makedirs(output_dir)
 
-# df = pd.read_feather(f"{output_dir}/extraction.feather")
-df = results_to_dataframe(results, SocioeconomicFamilyExtraction)
+df = results_to_dataframe(results, HistoryLegalCompetence)
 df = df.merge(note[['note_id', 'file_name']], on='note_id', how='left')
 # move file_name column to the front
 df = df[['file_name'] + [col for col in df.columns if col != 'file_name']]
@@ -98,6 +93,19 @@ df.to_feather(f"{output_dir}/extraction.feather")
 df.to_csv(f"{output_dir}/extraction_review.csv", index=False)
 print(df.head())
 
-print(df["number_of_siblings_value"].head())
+# Review column: number_of_suicide_attempts
+print(df['number_of_suicide_attempts_value'])
 
+# Added task 1, 2, and 3
+df1 = pd.read_feather("output/task1/extraction.feather")
+df2 = pd.read_feather("output/task2/extraction.feather")
+df3 = pd.read_feather("output/task3/extraction.feather")
 
+df1 = df1.rename(columns={"note_id": "text_id"})
+df2 = df2.rename(columns={"note_id": "text_id"})
+df3 = df3.rename(columns={"note_id": "text_id"})
+
+merged_df = df1.merge(df2, on="text_id", how="outer").merge(df3, on="text_id", how="outer")
+
+merged_df.to_csv(f"output/extraction_1,2,3.csv", index=False)
+merged_df.to_feather(f"output/extraction_1,2,3.feather")

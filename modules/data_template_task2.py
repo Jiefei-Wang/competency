@@ -24,7 +24,13 @@ class BooleanData(StrictModel):
     value: bool | None
     supporting_text: str | None
     confidence: Literal["high", "medium", "low"] 
-
+    
+class OperationData(StrictModel):
+    operator: Literal["=", ">="] | None
+    value: int | None
+    supporting_text: str | None
+    confidence: Literal["high", "medium", "low"]
+    
 class SocioeconomicFamilyExtraction(StrictModel):
     #sociodemographic
     evaluee_name: BaseData
@@ -33,6 +39,7 @@ class SocioeconomicFamilyExtraction(StrictModel):
     evaluee_sex: BaseData
     evaluee_race: BaseData
     current_charges: BaseData
+    offense_type: BaseData
     
     #family history
     family_history_mental_illness: BooleanData
@@ -41,18 +48,20 @@ class SocioeconomicFamilyExtraction(StrictModel):
     
     #developmental history
     birthplace: BaseData
-    number_of_siblings: IntData
+    number_of_siblings: OperationData
     development_delays: BooleanData
+    special_education: BooleanData
     parents_married: BooleanData
     parents_divorced: BooleanData
     parent_death: BooleanData 
-    parent_death_age: IntData # Age of the evaluee when either parent died. If younger than 18 then "childhood", if 18 or older then "adulthood".
+    parent_death_age: BaseData # Age of the evaluee when either parent died. If younger than 18 then "childhood", if 18 or older then "adulthood".
+    childhood_parent_death: BooleanData
     history_physical_abuse: BooleanData
     history_sexual_abuse: BooleanData
     history_emotional_abuse: BooleanData
     history_physical_neglect: BooleanData
     history_emotional_neglect: BooleanData
-    unstable_housing: BooleanData # If the evaluee states that they have stable or consistent housing then “Domicile”, otherwise homeless, couch surfing, homeless shelter, non-RV vehicle then "Homeless".
+    history_unstable_housing: BooleanData # If the evaluee states that they have stable or consistent housing then “Domicile”, otherwise homeless, couch surfing, homeless shelter, non-RV vehicle then "Homeless".
     history_food_insecurity: BooleanData 
     
     #social history
@@ -63,7 +72,9 @@ class SocioeconomicFamilyExtraction(StrictModel):
     expulsion_from_school: BooleanData 
     number_of_expulsions: IntData
     behavioral_problems_in_school: BooleanData
-    history_of_bullying: BooleanData
+    academic_problems_in_school: BooleanData
+    history_of_bullying: BooleanData | None
+    history_of_being_bullied: BooleanData | None
     current_employment_status: BaseData
     longest_duration_of_employment: IntData
     primary_industry_of_employment: BaseData
