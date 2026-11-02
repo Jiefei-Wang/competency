@@ -29,8 +29,9 @@ df_clean = convert_arrays_to_lists(merged_df)
 
 print(merged_df.dtypes)
 
-# Remove supporting_text and confidence columns
-cols_to_remove = [col for col in df_clean.columns if col.endswith("supporting_text") or col.endswith("confidence")]
+# Remove and confidence columns
+cols_to_remove = [col for col in df_clean.columns if col.endswith("confidence")]
+
 df_clean = df_clean.drop(columns=cols_to_remove)
 
 print(df_clean.head())
@@ -38,8 +39,9 @@ print(df_clean.head())
 # Remove rows where competence to stand trial is FALSE
 df_clean = df_clean[df_clean["is_competence_to_stand_trial"] == True]
 
-# Remove columns block section
-cols_to_remove = [col for col in df_clean.columns if col.startswith("block_")]
+# Remove columns "block_section and "file_name_x" "file_name_y"
+cols_to_remove = [col for col in df_clean.columns if col.startswith("block_section_") or col.startswith("file_name_")]
+df_clean = df_clean.drop(columns=cols_to_remove)
 
 # Save the combined DataFrame to a CSV file
 output_dir = "output/combined_tasks"

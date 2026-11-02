@@ -1,30 +1,38 @@
 # pip install git+https://github.com/Jiefei-Wang/extract_inspector.git
+# uninstall extract_inspector
+python -m pip uninstall extract_inspector
+# verify uninstall
+python -m pip show extract_inspector
+
+# install new extract_inspector
+pip install git+https://github.com/anegarza/extract_inspector.git
 
 import os
 
 import numpy as np
 import pandas as pd
+from extract_inspector.inspect import Corpus, Inspector, inspector_web
 
-try:
-    from extract_inspector.inspect import inspect_extractions
-except ImportError:
-    from extract_inspector.inspect import Corpus, Inspector, inspector_web
+#try:
+#    from extract_inspector.inspect import inspect_extractions
+#except ImportError:
+#    from extract_inspector.inspect import Corpus, Inspector, inspector_web
+#
+#    def inspect_extractions(texts: pd.DataFrame, entities: pd.DataFrame, text_col: str = "text", highlight_col=None):
+#        if isinstance(highlight_col, str):
+#            highlight_col = [highlight_col]
+#        if highlight_col is None:
+#            highlight_col = []
 
-    def inspect_extractions(texts: pd.DataFrame, entities: pd.DataFrame, text_col: str = "text", highlight_col=None):
-        if isinstance(highlight_col, str):
-            highlight_col = [highlight_col]
-        if highlight_col is None:
-            highlight_col = []
-
-        corpus = Corpus(texts=texts, text_id_col="text_id", text_col=text_col)
-        inspector = Inspector(
-            tag_name="extractions",
-            entities=entities,
-            text_id_col="text_id",
-            shown_cols=[col for col in entities.columns if col != "text_id"],
-            highlight_cols=highlight_col,
-        )
-        inspector_web(corpus, inspector, open_browser=True)
+        # corpus = Corpus(texts=texts, text_id_col="text_id", text_col=text_col)
+        # inspector = Inspector(
+        #     tag_name="extractions",
+        #     entities=entities,
+        #     text_id_col="text_id",
+        #     shown_cols=[col for col in entities.columns if col != "text_id"],
+        #     highlight_cols=highlight_col,
+        # )
+        # inspector_web(corpus, inspector, open_browser=True)
 
 
 
@@ -67,6 +75,12 @@ corpus = Corpus(
     text_title="Note {name}",
 )
 
+relations_map = {}
+for sup_col in supporting_text_cols:
+    base_col = sup_col.removesuffix("_supporting_text") + "_value"
+    if base_col in shown_cols:
+        relations_map[sup_col] = base_col
+        
 inspector = Inspector(
     tag_name="task_extraction",
     entities=df_clean,
@@ -74,6 +88,7 @@ inspector = Inspector(
     entity_title="Extraction {item_id}",
     shown_cols=shown_cols, #changed to only necessary columns
     highlight_cols=supporting_text_cols,
+    highlight_relations=relations_map,
 )
 
 inspector_web(
@@ -87,10 +102,10 @@ inspector_web(
 )
 
 # Previous Inspector
-inspect_extractions(
-    note_clean,
-    df_clean,
-    text_col="name",
-    highlight_col=supporting_text_cols
-)
+# inspect_extractions(
+#     note_clean,
+#     df_clean,
+#     text_col="name",
+#     highlight_col=supporting_text_cols
+# )
 

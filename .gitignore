@@ -3,3 +3,4 @@ output/*
 **.pyc
 plan.md
 .vscode/settings.json
+desktop.ini

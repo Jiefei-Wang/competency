@@ -69,11 +69,12 @@ Below are the definitions for the data elements in the schema:
 
 - block_section_end: Identify the LAST block section where the competency evaluation meaningfully ends. This should usually contain: competency opinions, treatment recommendations, other comments, examiner signatures, conclusions, and similiar.
 
-Important Extraction Rules:
-- Verbatim Quotes Only: For any field requiring supporting_text, you MUST extract the exact, verbatim text snippet from the document that proves or contains the extracted value.
-- Confidence Scoring: Set confidence to "high" only if the verbatim text explicitly and unambiguously confirms the value. Set it to "medium" or "low" if there is ambiguity, typos, or if you are inferring the value from messy OCR context.
-- Missing Data (Null Rule): If a specific piece of information is completely missing from the text, you MUST output null for `value`, null for `supporting_text`, and null for `confidence`.
-- Confidence Scoring: Set confidence to "high" only if the verbatim text explicitly confirms the value. Set it to "medium" or "low" if there is ambiguity in the text or OCR errors. CRITICAL: NEVER output a confidence score (high/medium/low) if `supporting_text` is null. If there is no supporting text, the confidence MUST be null.
+Important Extraction Rules
+- Verbatim Quotes & Missing Data: For any field requiring supporting_text, you MUST extract the exact, verbatim text snippet from the document. If a specific piece of information is missing, not discussed, or lacks verbatim support, you MUST output null for value, supporting_text, and confidence. Do not infer or assign values without text support.
+- Confidence Scoring Limit: Set confidence to "high" only if the verbatim text explicitly confirms the value. Set it to "medium" or "low" if there is ambiguity or OCR errors. CRITICAL: NEVER output a confidence score if supporting_text is null; the confidence MUST be null.
+- Global Refusal & Denial Mapping: Distinguish explicitly between "Denied", "Refused/Unwilling", "Unable to Assess", and "Not Mentioned". If a report explicitly says a history or symptom is denied, output false. If the evaluee refuses to answer, or the examiner is unable to assess a category, you MUST output null. Do not output false or 0 for refusals.
+- Mutual Exclusivity: Refers strictly to thoughts or behaviors occurring during the evaluation ("currently", "today") versus prior to the evaluation ("history of", "previously"). You must treat past and present timelines as strictly separate. A current symptom (or lack thereof) DOES NOT automatically justify a "history" field. Denying current suicidal ideation does NOT mean a denial of past attempts. If a past history is not explicitly discussed, the historical field MUST be null, regardless of the patient's current state.
+- Strict Variable Isolation: Do not cross-contaminate fields. Denying a family history of suicide does not equate to denying personal attempts. Denying suicide attempts does not equate to denying suicidal ideation. Each variable must be isolated and supported by its own specific text.
 
 Return JSON only. Do NOT wrap the JSON response in markdown code blocks (```json). Now analyze this OCR report:
 

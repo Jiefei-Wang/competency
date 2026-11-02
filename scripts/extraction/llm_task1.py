@@ -45,7 +45,6 @@ prompt_template = prompt_template.replace("{schema}", json.dumps(schema, indent=
 with open("output/task1_extract_evaluation.md", "w") as f:
     f.write(prompt_template) 
 
-
 note = pd.read_feather("output/pdf_md_ocr.feather")
 all_note = note.text.tolist()
 modified_notes = insert_block_num(all_note, n=50)
@@ -100,6 +99,8 @@ print(df.head())
 
 print(df.columns)
 
+#show column date_of_report_value
+print(df['date_of_report_value'])
 
 
 print("\nExtracting evaluation blocks to markdown files...")
